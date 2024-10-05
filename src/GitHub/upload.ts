@@ -137,13 +137,13 @@ export default class Publisher {
 					} catch (e) {
 						new Notice(i18next.t("error.unablePublishNote", { file: file.name }));
 						fileError.push(file.name);
-						this.console.logs({ e: true }, e);
+						this.console.fatal(e);
 					}
 				}
 				statusBar.finish(8000);
 			} catch (e) {
-				this.console.logs({ e: true }, e);
-				this.console.notifError(prop);
+				this.console.fatal(e);
+				this.console.noticeErrorUpload(prop);
 				statusBar.error(prop);
 			}
 		}
@@ -173,7 +173,26 @@ export default class Publisher {
 	) {
 		const shareFiles = new FilesManagement(this.octokit, this.plugin);
 		let frontmatter = frontmatterFromFile(file, this.plugin, null);
+		const filePath = getReceiptFolder(
+			file,
+			repo.repository,
+			this.plugin,
+			repo.frontmatter
+		);
 		if (!isShared(frontmatter, this.settings, file, repo.repository)) return false;
+		console.debug(file.name, fileHistory.length);
+		if (
+			!(await shareFiles.wasEditedSinceLastSync(file, repo.repository, filePath)) && fileHistory.length > 0
+		) {
+			const msg = i18next.t("publish.upToDate", {
+				file: file.name,
+				repo: `${repo.repository?.user ?? this.settings.github.user}/${
+					repo.repository?.repo ?? this.settings.github.repo
+				}:${repo.repository?.branch ?? this.branchName}`,
+			});
+			new Notice(msg);
+			return false;
+		}
 		frontmatter = mergeFrontmatter(
 			frontmatter,
 			sourceFrontmatter,
@@ -182,6 +201,7 @@ export default class Publisher {
 		const prop = getProperties(this.plugin, repo.repository, frontmatter);
 		const isNotEmpty = await checkEmptyConfiguration(prop, this.plugin);
 		repo.frontmatter = prop;
+
 		if (
 			fileHistory.includes(file) ||
 			!checkIfRepoIsInAnother(prop, repo.frontmatter) ||
@@ -190,7 +210,7 @@ export default class Publisher {
 			return false;
 		}
 		try {
-			this.console.logs({}, `Publishing file: ${file.path}`);
+			this.console.trace(`Publishing file: ${file.path}`);
 			fileHistory.push(file);
 			const frontmatterSettingsFromFile = getFrontmatterSettings(
 				frontmatter,
@@ -207,15 +227,6 @@ export default class Publisher {
 				frontmatterRepository,
 				frontmatterSettingsFromFile
 			);
-			let embedFiles = shareFiles.getSharedEmbed(file, frontmatterSettings);
-			embedFiles = await shareFiles.getMetadataLinks(
-				file,
-				embedFiles,
-				frontmatterSettings
-			);
-			const linkedFiles = shareFiles.getLinkedByEmbedding(file);
-
-			let text = await this.vault.cachedRead(file);
 			const multiProperties: MultiProperties = {
 				plugin: this.plugin,
 				frontmatter: {
@@ -223,8 +234,17 @@ export default class Publisher {
 					prop: repo.frontmatter,
 				},
 				repository: repo.repository,
-				filepath: getReceiptFolder(file, repo.repository, this.plugin, repo.frontmatter),
+				filepath: filePath,
 			};
+
+			let embedFiles = shareFiles.getSharedEmbed(file, frontmatterSettings);
+			embedFiles = await shareFiles.getMetadataLinks(
+				file,
+				embedFiles,
+				frontmatterSettings
+			);
+			const linkedFiles = shareFiles.getLinkedByEmbedding(file);
+			let text = await this.vault.cachedRead(file);
 			text = await mainConverting(text, file, frontmatter, linkedFiles, multiProperties);
 			const path = multiProperties.filepath;
 			const prop = Array.isArray(repo.frontmatter)
@@ -235,7 +255,7 @@ export default class Publisher {
 				multiRepMsg += `[${repo.owner}/${repo.repo}/${repo.branch}] `;
 			}
 			const msg = `Publishing ${file.name} to ${multiRepMsg}`;
-			this.console.logs({}, msg);
+			this.console.trace(msg);
 			const fileDeleted: Deleted[] = [];
 			const updated: UploadedFiles[][] = [];
 			const fileError: string[] = [];
@@ -268,7 +288,7 @@ export default class Publisher {
 			}
 			return { deleted: fileDeleted[0], uploaded: updated[0], error: fileError };
 		} catch (e) {
-			this.console.logs({ e: true }, e);
+			this.console.fatal(e);
 			return false;
 		}
 	}
@@ -307,8 +327,7 @@ export default class Publisher {
 		});
 		embedFiles = await this.cleanLinkedImageIfAlreadyInRepo(embedFiles, properties);
 		const repo = properties.frontmatter.prop;
-		this.console.notif(
-			{},
+		this.console.trace(
 			`Upload ${file.name}:${path} on ${repo.owner}/${repo.repo}:${this.branchName}`
 		);
 		const notifMob = this.console.noticeMobile(
@@ -338,14 +357,14 @@ export default class Publisher {
 				],
 			};
 		}
-		const embeded = await this.statusBarForEmbed(
+		const embedded = await this.statusBarForEmbed(
 			embedFiles,
 			fileHistory,
 			deepScan,
 			properties
 		);
 
-		const embeddedUploaded = embeded.uploaded;
+		const embeddedUploaded = embedded.uploaded;
 		embeddedUploaded.push(uploaded);
 		if (autoclean || repo.dryRun.autoclean) {
 			deleted = await deleteFromGithub(true, this.branchName, shareFiles, {
@@ -357,7 +376,7 @@ export default class Publisher {
 		return {
 			deleted,
 			uploaded: embeddedUploaded,
-			error: embeded.error,
+			error: embedded.error,
 		};
 	}
 
@@ -418,7 +437,7 @@ export default class Publisher {
 				result.isUpdated = true;
 			}
 		} catch {
-			this.console.logs({}, i18next.t("error.normal"));
+			this.console.trace(i18next.t("error.normal"));
 		}
 
 		payload.message = msg;
@@ -524,7 +543,7 @@ export default class Publisher {
 			const contentBase64 = Base64.encode(text).toString();
 			return await this.upload(contentBase64, path, title, prop);
 		} catch (e) {
-			this.console.notif({ e: true }, e);
+			this.console.fatal(e);
 			return undefined;
 		}
 	}
@@ -667,10 +686,7 @@ export default class Publisher {
 							) {
 								newLinkedFiles.push(file);
 							} else
-								this.console.logs(
-									{},
-									i18next.t("error.alreadyExists", { file: file.name })
-								);
+								this.console.trace(i18next.t("error.alreadyExists", {file: file.name}));
 						}
 					}
 				} catch (_e) {

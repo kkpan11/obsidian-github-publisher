@@ -46,7 +46,7 @@ export class FilesManagement extends Publisher {
 					sharedFile.push(file);
 				}
 			} catch (e) {
-				this.console.logs({ e: true }, e);
+				this.console.trace(e);
 			}
 		}
 		return sharedFile;
@@ -75,7 +75,7 @@ export class FilesManagement extends Publisher {
 						files.push(file as TFile);
 					}
 				} catch (e) {
-					this.console.logs({ e: true }, e);
+					this.console.trace(e);
 				}
 			}
 		}
@@ -222,7 +222,7 @@ export class FilesManagement extends Publisher {
 						linkedFiles.push(thisLinkedFile);
 					}
 				} catch (e) {
-					this.console.logs({}, e);
+					this.console.trace(e);
 				}
 			}
 		}
@@ -283,7 +283,7 @@ export class FilesManagement extends Publisher {
 						embedList.push(thisEmbed);
 					}
 				} catch (e) {
-					this.console.logs({ e: true }, `Error with this links : ${embedCache.link}`, e);
+					this.console.debug(`Error with this links : ${embedCache.link}`, e);
 				}
 			}
 			return [...new Set(embedList)];
@@ -345,7 +345,7 @@ export class FilesManagement extends Publisher {
 					fromWhat
 				) as TFile;
 		} catch (e) {
-			this.console.logs({ e: true }, `Error with this file : ${embed.displayText}`, e);
+			this.console.debug(`Error with this file : ${embed.displayText}`, e);
 		}
 		return undefined;
 	}
@@ -409,7 +409,7 @@ export class FilesManagement extends Publisher {
 				}
 			}
 		} catch (e) {
-			this.console.logs({ e: true }, e);
+			this.console.debug(e);
 		}
 		return filesInRepo;
 	}
@@ -596,8 +596,7 @@ export class FilesManagement extends Publisher {
 				if (fileInVault && isMarkdown) {
 					const vaultEditedTime = new Date(fileInVault.stat.mtime);
 					if (repoEditedTime && vaultEditedTime > repoEditedTime) {
-						this.console.logs(
-							{},
+						this.console.debug(
 							`edited file : ${fileInVault.path} / ${vaultEditedTime} vs ${repoEditedTime}`
 						);
 						newFiles.push(fileInVault);
@@ -606,5 +605,35 @@ export class FilesManagement extends Publisher {
 			}
 		}
 		return newFiles;
+	}
+
+	async wasEditedSinceLastSync(
+		file: TFile,
+		repo: Repository | null,
+		repoPath: string
+	): Promise<boolean> {
+		//first check if the file exist in github
+		if (this.settings.embed.forcePush ||
+			this.settings.embed.forcePush == null ||
+			this.settings.github.dryRun.enable)
+			return true;
+		const githubFile = await this.octokit.request("GET /repos/{owner}/{repo}/commits", {
+			owner: repo?.user ?? this.settings.github.user,
+			repo: repo?.repo ?? this.settings.github.repo,
+			path: repoPath,
+		});
+		if (githubFile.status !== 200) return true; //doesn't exists
+		const vaultEditedTime = new Date(file.stat.mtime);
+		const lastCommittedFile = githubFile.data[0];
+		if (
+			!lastCommittedFile ||
+			!lastCommittedFile.commit ||
+			!lastCommittedFile.commit.committer ||
+			!lastCommittedFile.commit.committer.date
+		) {
+			return true;
+		}
+		const githubDate = new Date(lastCommittedFile.commit.committer.date);
+		return vaultEditedTime > githubDate;
 	}
 }

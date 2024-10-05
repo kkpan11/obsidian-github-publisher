@@ -318,6 +318,7 @@ export class EnveloppeSettingsTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				})
 			);
+		
 		new Setting(this.settingsPage)
 			.setName(i18next.t("settings.github.dryRun.enable.title"))
 			.setDesc(i18next.t("settings.github.dryRun.enable.desc"))
@@ -905,6 +906,17 @@ export class EnveloppeSettingsTab extends PluginSettingTab {
 					await this.renderEmbedConfiguration();
 				});
 			});
+		
+		new Setting(this.settingsPage)
+			.setName(i18next.t("settings.embed.forcePush.title"))
+			.setDesc(i18next.t("settings.embed.forcePush.desc"))
+			.addToggle((toggle) =>
+				toggle.setValue(embedSettings.forcePush ?? true).onChange(async (value) => {
+					embedSettings.forcePush = value;
+					await this.plugin.saveSettings();
+				})
+			);
+		
 		this.settingsPage.createEl("h5", {
 			text: i18next.t("settings.embed.attachment"),
 			cls: "center",
@@ -1013,7 +1025,7 @@ export class EnveloppeSettingsTab extends PluginSettingTab {
 					await this.renderEmbedConfiguration();
 				});
 			});
-
+		
 		if (embedSettings.notes) {
 			new Setting(this.settingsPage)
 				.setName(i18next.t("settings.embed.links.title"))
@@ -1435,7 +1447,7 @@ export class EnveloppeSettingsTab extends PluginSettingTab {
 		try {
 			return klona(object);
 		} catch (_e) {
-			this.plugin.console.logs({ e: true }, "error with stringify for", object);
+			this.plugin.console.debug("error with stringify for", object);
 		}
 	}
 }
